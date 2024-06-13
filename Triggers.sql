@@ -1,20 +1,146 @@
-CREATE OR REPLACE FUNCTION checkAvail() RETURNS trigger AS $$
-DECLARE result BOOLEAN;
+DROP TABLE IF EXISTS aula_examen;
+
+CREATE TABLE aula_examen 
+(
+        nroaula INT NOT NULL,
+        fecha_hora TIMESTAMP NOT NULL,
+        duracion INTERVAL NOT NULL,
+        codmateria VARCHAR NOT NULL,
+        confirmado BOOLEAN NOT NULL DEFAULT FALSE,
+
+        UNIQUE(nroaula, fecha_hora, duracion, codmateria)
+);
+
+CREATE OR REPLACE FUNCTION checkAvail() 
+RETURNS trigger 
+LANGUAGE plpgsql
+AS $$
+DECLARE 
+    resultado INTEGER;
 BEGIN
 
-    SELECT COUNT(*)=0 INTO result
-    FROM AULA_EXAMEN
-    WHERE nroaula = NEW.nroaula &&
-        EXTRACT(DAY FROM fecha_hora) = EXTRACT(DAY FROM NEW.fecha_hora) &&
-        EXTRACT(MONTH FROM fecha_hora) = EXTRACT(MONTH FROM NEW.fecha_hora) &&
-        EXTRACT(YEAR FROM fecha_hora) = EXTRACT(YEAR FROM NEW.fecha_hora) &&
-        EXTRACT(HOUR FROM fecha_hora)+duracion_examen <= EXTRACT(HOUR FROM NEW.fecha_hora)  &&     --total tiempo de examen antes o dps
-        EXTRACT(HOUR FROM fecha_hora) >= EXTRACT(HOUR FROM NEW.fecha_hora) + NEW.duracion_examen;  --no se pisan
+    IF NEW.duracion >= INTERVAL '24 hours' THEN
+        RAISE EXCEPTION 'Duracion invalida de examen';
+    END IF;    
+    
+    IF NEW.nroaula <= 0 THEN 
+        RAISE EXCEPTION 'Numero de aula invalido';
+    END IF;
 
-    INSERT INTO AULA_EXAMEN VALUES (nroaula, fecha_hora, duracion, codmateria, result);
-    RETURN NULL;
+    SELECT COUNT(*) INTO resultado
+    FROM aula_examen
+    WHERE nroaula = NEW.nroaula 
+        AND confirmado = TRUE
+        AND(
+                (fecha_hora <= NEW.fecha_hora AND fecha_hora + duracion  >= NEW.fecha_hora)
+                OR
+                (fecha_hora >= NEW.fecha_hora AND fecha_hora <= NEW.fecha_hora + NEW.duracion)
+        );
+
+    IF resultado = 0 THEN
+        NEW.confirmado := TRUE;
+    ELSE
+        NEW.confirmado := FALSE;
+    END IF;
+
+    RETURN NEW;
 END;
+$$;
+
 
 CREATE TRIGGER confirm
-BEFORE INSERT ON AULA_EXAMEN
-EXECUTE PROCEDURE checkAvail();
+BEFORE INSERT ON aula_examen
+FOR EACH ROW
+EXECUTE FUNCTION checkAvail();
+
+insert into aula_examen values (10, '12/10/2024 9:00:00', INTERVAL '3 hours', '72.34', TRUE);
+insert into aula_examen values (10, '12/10/2024 8:00:00', INTERVAL '2 hours', '72.37', FALSE);
+insert into aula_examen values (10, '12/10/2024 8:00:00', INTERVAL '5 hours', '72.34', FALSE);
+insert into aula_examen values (8, '12/10/2024 8:00:00', INTERVAL '5hours', '72.34', TRUE);
+insert into aula_examen values (8, '11/11/2024 12:30:00', INTERVAL '1.5 hours', '72.34', TRUE);
+insert into aula_examen values (10, '11/11/2024 13:00:00', INTERVAL '3 hours', '72.37', TRUE);
+
+
+
+CREATE OR REPLACE FUNCTION analisis_asignaciones(dia_hora TIMESTAMP)
+RETURNS VOID
+AS $$
+DECLARE 
+    r RECORD;
+    has_data BOOLEAN;
+
+    c_true CURSOR FOR SELECT 
+            codmateria, 
+            DATE(fecha_hora) AS fecha, 
+            AVG(duracion) AS horas, 
+            ROW_NUMBER() OVER (PARTITION BY codmateria ORDER BY codmateria, AVG(duracion) DESC) AS nrolinea
+    
+    FROM aula_examen 
+    WHERE confirmado = TRUE AND fecha_hora >= dia_hora
+    GROUP BY codmateria, DATE(fecha_hora)
+    ORDER BY codmateria, horas DESC;
+
+    c_false CURSOR FOR SELECT 
+            nroaula, 
+            fecha_hora, 
+            duracion AS horas, 
+            ROW_NUMBER() OVER (PARTITION BY nroaula ORDER BY nroaula DESC) AS nrolinea
+    
+    FROM aula_examen 
+    WHERE confirmado = FALSE AND fecha_hora >= dia_hora
+    ORDER BY nroaula, fecha_hora;
+    
+BEGIN
+
+
+    OPEN c_true;
+    FETCH c_true INTO r;
+    IF FOUND THEN
+        has_data := TRUE;
+    END IF;
+    CLOSE c_true;
+
+    OPEN c_false;
+    FETCH c_false INTO r;
+    IF FOUND THEN
+        has_data := TRUE;
+    END IF;
+    CLOSE c_false;
+    
+    
+    IF has_data THEN
+    RAISE NOTICE '------------------------------------------------------------';
+    RAISE NOTICE '----------------ANALISIS DE ASIGNACIONES-------------';
+    RAISE NOTICE '------------------------------------------------------------';
+    RAISE NOTICE 'Variable--------Fecha--------Horas--------Nro Linea-----';
+    RAISE NOTICE '--------------------------------------------------------';
+    
+    ELSE RETURN;
+    END IF;
+
+    OPEN c_true;
+
+    LOOP
+        FETCH c_true INTO r;
+        EXIT WHEN NOT FOUND;
+        raise NOTICE 'Materia: %    %     %                                 %', r.codmateria, r.fecha, r.horas, r.nrolinea;   
+    END LOOP;
+
+    CLOSE c_true;
+
+    OPEN c_false;
+
+    LOOP
+        FETCH c_false INTO r;
+        EXIT WHEN NOT FOUND;
+        raise NOTICE 'Aula: %                %     % a %               %', r.nroaula, r.fecha_hora::DATE, r.fecha_hora::TIME, (r.fecha_hora + r.horas)::TIME, r.nrolinea;   
+    END LOOP;
+
+    CLOSE c_false;
+
+END; 
+$$ LANGUAGE plpgsql;
+
+
+SELECT analisis_asignaciones('2026-10-01 00:00:00');
+SELECT * from aula_examen;
