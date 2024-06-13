@@ -1,37 +1,20 @@
 CREATE OR REPLACE FUNCTION checkAvail() RETURNS trigger AS $$
-DECLARE nro, fecha, hora, duracion_examen
+DECLARE result BOOLEAN;
 BEGIN
 
-    SELECT nroaula, duracion,
-    EXTRACT(HOUR FROM fecha_hora) AS hora,
-    EXTRACT(DAY FROM fecha_hora) AS dia,
-    EXTRACT(MONTH FROM fecha_hora) AS mes,
-    EXTRACT(YEAR FROM fecha_hora) AS año AS anio
-
+    SELECT COUNT(*)=0 INTO result
     FROM AULA_EXAMEN
-    where (nroaula=NEW.nroaula &&
-            dia = EXTRACT(DAY FROM NEW.fecha_hora) &&
-            mes = EXTRACT(MONTH FROM NEW.fecha_hora) &&
-            anio = EXTRACT(YEAR FROM NEW.fecha_hora) &&
+    WHERE nroaula = NEW.nroaula &&
+        EXTRACT(DAY FROM fecha_hora) = EXTRACT(DAY FROM NEW.fecha_hora) &&
+        EXTRACT(MONTH FROM fecha_hora) = EXTRACT(MONTH FROM NEW.fecha_hora) &&
+        EXTRACT(YEAR FROM fecha_hora) = EXTRACT(YEAR FROM NEW.fecha_hora) &&
+        EXTRACT(HOUR FROM fecha_hora)+duracion_examen <= EXTRACT(HOUR FROM NEW.fecha_hora)  &&     --total tiempo de examen antes o dps
+        EXTRACT(HOUR FROM fecha_hora) >= EXTRACT(HOUR FROM NEW.fecha_hora) + NEW.duracion_examen;  --no se pisan
 
-            )
-
-
-
-    SELECT COUNT(*) = 0 INTO all_match
-    FROM test_table
-    WHERE value <> NEW.value;
-
-    -- Insert a new row with the new value and the check result
-    INSERT INTO test_table (value, check_result)
-    VALUES (NEW.value, all_match);
-
-    -- Prevent the original insert
+    INSERT INTO AULA_EXAMEN VALUES (nroaula, fecha_hora, duracion, codmateria, result);
     RETURN NULL;
 END;
 
---se podria hacer un update de la tupla insertada, after
---o checkear y luego insertar con nuevo valor, before
 CREATE TRIGGER confirm
-    BEFORE INSERT ON AULA_EXAMEN
-    FOR
+BEFORE INSERT ON AULA_EXAMEN
+EXECUTE PROCEDURE checkAvail();
