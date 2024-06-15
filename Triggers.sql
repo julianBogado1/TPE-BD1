@@ -53,14 +53,6 @@ BEFORE INSERT ON aula_examen
 FOR EACH ROW
 EXECUTE FUNCTION checkAvail();
 
-insert into aula_examen values (10, '12/10/2024 9:00:00', INTERVAL '3 hours', '72.34', TRUE);
-insert into aula_examen values (10, '12/10/2024 8:00:00', INTERVAL '2 hours', '72.37', FALSE);
-insert into aula_examen values (10, '12/10/2024 8:00:00', INTERVAL '5 hours', '72.34', FALSE);
-insert into aula_examen values (8, '12/10/2024 8:00:00', INTERVAL '5hours', '72.34', TRUE);
-insert into aula_examen values (8, '11/11/2024 12:30:00', INTERVAL '1.5 hours', '72.34', TRUE);
-insert into aula_examen values (10, '11/11/2024 13:00:00', INTERVAL '3 hours', '72.37', TRUE);
-
-
 
 CREATE OR REPLACE FUNCTION analisis_asignaciones(dia_hora TIMESTAMP)
 RETURNS VOID
